@@ -8,14 +8,107 @@
 import pyglet
 from pyglet.gl import *
 import math
+from GLLMath import *
  
 from shader import Shader
- 
+
+class LineRendererDynamic:
+    def __init__(self):
+        self.shader = Shader(['''
+                              void main() {
+                               // transform the vertex position
+                               gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+                                // pass through the texture coordinate
+                                gl_TexCoord[0] = gl_MultiTexCoord0;
+                            }
+                              '''])
+        
+    def drawLine(start, end, width):
+        pass
+    
+class LineRendererAliased:
+    def drawLine(self, start, end, width):
+            lineBatch = pyglet.graphics.Batch()
+    
+            direction = pointsSubtract(end, start)
+            cross = pointNormalized(pointCross(direction))
+            
+            tl = pointsAdd(start, pointMultipliedByScalar(cross, width * 0.5))
+            tr = pointsAdd(start, pointsAdd(direction, pointMultipliedByScalar(cross, width * 0.5)))
+            bl = pointsAdd(start, pointMultipliedByScalar(cross, -width * 0.5))
+            br = pointsAdd(start, pointsAdd(direction, pointMultipliedByScalar(cross, -width * 0.5)))    
+            
+            # vertex_list = pyglet.graphics.vertex_list(6,
+            #                                             ('v2i', (10, 15, 30, 35)),
+            #                                             ('c3B', (0, 0, 255, 0, 255, 0))
+        
+            vertex_list = lineBatch.add(
+                6,
+                                        pyglet.gl.GL_TRIANGLES,
+                                        None,
+                                        ('v2f',
+                                         (tl[0], tl[1], tr[0], tr[1], bl[0], bl[1],
+                                          tr[0], tr[1], br[0], br[1], bl[0], bl[1])
+                                        ),
+                                        ('c4f',
+                                         (1.0, 1.0, 1.0, 1.0,  1.0, 1.0, 1.0, 1.0,  1.0, 1.0, 1.0, 1.0,
+                                          1.0, 1.0, 1.0, 1.0,  1.0, 1.0, 1.0, 1.0,  1.0, 1.0, 1.0, 1.0))
+                                        )
+            lineBatch.draw()
+        
+
 # create the window, but keep it offscreen until we are done with setup
 window = pyglet.window.Window(1024, 768, resizable=True, visible=False, caption="Lines")
  
 # centre the window on whichever screen it is currently on (in case of multiple monitors)
 window.set_location(window.screen.width/2 - window.width/2, window.screen.height/2 - window.height/2)
+
+shader = Shader(['''
+void main() {
+    // transform the vertex position
+    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+    // pass through the texture coordinate
+    gl_TexCoord[0] = gl_MultiTexCoord0;
+}
+'''], ['''
+uniform sampler2D tex0;
+uniform vec2 pixel;
+ 
+void main() {
+    // retrieve the texture coordinate
+    vec2 c = gl_TexCoord[0].xy;
+ 
+    // and the current pixel
+    vec3 current = texture2D(tex0, c).rgb;
+ 
+    // count the neightbouring pixels with a value greater than zero
+    vec3 neighbours = vec3(0.0);
+    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1,-1)).rgb, vec3(0.0)));
+    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1, 0)).rgb, vec3(0.0)));
+    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1, 1)).rgb, vec3(0.0)));
+    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 0,-1)).rgb, vec3(0.0)));
+    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 0, 1)).rgb, vec3(0.0)));
+    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1,-1)).rgb, vec3(0.0)));
+    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1, 0)).rgb, vec3(0.0)));
+    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1, 1)).rgb, vec3(0.0)));
+ 
+    // check if the current pixel is alive
+    vec3 live = vec3(greaterThan(current, vec3(0.0)));
+ 
+    // resurect if we are not live, and have 3 live neighrbours
+    current += (1.0-live) * vec3(equal(neighbours, vec3(3.0)));
+ 
+    // kill if we do not have either 3 or 2 neighbours
+    current *= vec3(equal(neighbours, vec3(2.0))) + vec3(equal(neighbours, vec3(3.0)));
+ 
+    // fade the current pixel as it ages
+    current -= vec3(greaterThan(current, vec3(0.4)))*0.05;
+ 
+    // write out the pixel
+    gl_FragColor = vec4(current, 1.0);
+}
+'''])
+
  
 # create our shader
 shader = Shader(['''
@@ -115,27 +208,6 @@ def on_resize(width, height):
     # tell pyglet that we have handled the event, to prevent the default handler from running
     return pyglet.event.EVENT_HANDLED
 
-def pointsSubtract(p0, p1):
-    return (p0[0] - p1[0], p0[1] - p1[1])
-
-def pointsAdd(p0, p1):
-    return (p1[0] + p0[0], p1[1] + p0[1])
-
-def pointLen(p):
-    return math.sqrt(p[0] * p[0] + p[1] * p[1])
-
-def pointNormalized(p):
-    return (p[0] / pointLen(p), p[1] / pointLen(p))
-
-def pointMultipliedByScalar(p, s):
-    return (p[0] * s, p[1] *s)
-
-def pointCross(p):
-    return (p[1], -p[0])
-
-def pointCrossAlt(p):
-    return (-p[1], p[0])
-
 def drawLine(start, end, width):
     lineBatch = pyglet.graphics.Batch()
     
@@ -165,6 +237,9 @@ def drawLine(start, end, width):
                                 )
     lineBatch.draw()
     
+def drawLineDynamicWidth(start, end, width):
+    pass
+    
     
  
 # clear the window and draw the scene
@@ -178,7 +253,8 @@ def on_draw():
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     
-    drawLine((0.0, 0.0), (1.0, 1.0), 1.0 / 768.0)
+    aliasedRenderer = LineRendererAliased()
+    aliasedRenderer.drawLine((0.0, 0.0), (1.0, 1.0), 1.0 / 768.0)
 
     # bind the texture
     #glBindTexture(texture.target, texture.id)
