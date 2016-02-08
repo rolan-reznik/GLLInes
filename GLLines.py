@@ -37,22 +37,16 @@ class LineRendererDynamic:
                 }
              '''])
         
-    def drawLine(self, start, end, width):
+    def drawLineInNormalizedCoordinates(self, start, end, width):
         lineBatch = pyglet.graphics.Batch()
     
         direction = pointsSubtract(end, start)
         cross = pointNormalized(pointCross(direction))
+        cross = (cross[0], cross[1] * (window.width / window.height))
         crossAlt = pointNormalized(pointCrossAlt(direction))
+        crossAlt = (crossAlt[0], crossAlt[1] * (window.width / window.height))
         
-        tl = pointsAdd(start, pointMultipliedByScalar(cross, width * 0.5))
-        tr = pointsAdd(start, pointsAdd(direction, pointMultipliedByScalar(cross, width * 0.5)))
-        bl = pointsAdd(start, pointMultipliedByScalar(cross, -width * 0.5))
-        br = pointsAdd(start, pointsAdd(direction, pointMultipliedByScalar(cross, -width * 0.5)))    
-        
-        # vertex_list = pyglet.graphics.vertex_list(6,
-        #                                             ('v2i', (10, 15, 30, 35)),
-        #                                             ('c3B', (0, 0, 255, 0, 255, 0))
-        aspect =   window.width / window.height
+        aspect = window.width / window.height
         vertex_list = lineBatch.add(
             6,
                                     pyglet.gl.GL_TRIANGLES,
@@ -76,37 +70,51 @@ class LineRendererDynamic:
                                       
                                       width, width * aspect,  width, width * aspect,  width, width * aspect)
                                     )
-                                    # ('1g4f',
-                                    #  (1.0, 0.0, 0.0, 1.0,  1.0, 0.0, 0.0, 0.5,  1.0, 0.0, 0.0, 0.5,
-                                    #   
-                                    #   0.0, 1.0, 0.0, 1.0,  0.0, 0.0, 1.0, 1.0,  0.0, 0.0, 1.0, 1.0)
-                                    # ),
-                                    # ('1g1f',
-                                    #   (width, width, width, width, width, width)  
-                                    #  )
                                     )
     
-        # vertex_list = lineBatch.add(
-        #     6,
-        #                             pyglet.gl.GL_TRIANGLES,
-        #                             None,
-        #                             ('v2f',
-        #                              (tl[0], tl[1], tr[0], tr[1], bl[0], bl[1],
-        #                               bl[0], bl[1], tr[0], tr[1], br[0], br[1])
-        #                             ),
-        #                             ('c4f',
-        #                              (1.0, 0.0, 0.0, 0.5,  1.0, 0.0, 0.0, 0.5,  1.0, 0.0, 0.0, 0.5,
-        #                               
-        #                               0.0, 1.0, 1.0, 1.0,  0.0, 0.0, 1.0, 1.0,  0.0, 0.0, 1.0, 1.0)
-        #                             ),
-        #                             ('n3f',
-        #                              (direction[0], direction[1], 1.0,  direction[0], direction[1], 1.0,  -direction[0], -direction[1], 1.0,
-        #                               -direction[0], -direction[1], 1.0, direction[0], direction[1], 1.0,  -direction[0], -direction[1], 1.0)
-        #                              )
-        #                             
-        #                             
-        #                             
-        #                             )
+        self.shader.bind()
+        lineBatch.draw()
+        self.shader.unbind()
+        
+    def drawLine(self, start, end, width):
+        lineBatch = pyglet.graphics.Batch()
+        
+        start = pointsDivide(start, (window.width, window.height))
+        end = pointsDivide(end, (window.width, window.height))
+        
+        direction = pointsSubtract(end, start)
+        cross = pointNormalized(pointCross(direction))
+        cross = (cross[0], cross[1] * (window.width / window.height))
+        crossAlt = pointNormalized(pointCrossAlt(direction))
+        crossAlt = (crossAlt[0], crossAlt[1] * (window.width / window.height))
+        
+        width = width / window.width
+        
+        aspect = window.width / window.height
+        vertex_list = lineBatch.add(
+            6,
+                                    pyglet.gl.GL_TRIANGLES,
+                                    None,
+                                    ('v2f',
+                                     (start[0], start[1], end[0], end[1], start[0], start[1],
+                                      start[0], start[1], end[0], end[1], end[0], end[1])
+                                    ),
+                                    ('c4f',
+                                     (1.0, 0.0, 0.0, 1.0,  1.0, 0.0, 0.0, 0.5,  1.0, 0.0, 0.0, 0.5,
+                                      
+                                      0.0, 1.0, 0.0, 1.0,  0.0, 0.0, 1.0, 1.0,  0.0, 0.0, 1.0, 1.0)
+                                    ),
+                                    ('n3f',
+                                     (cross[0], cross[1], 1.0,  crossAlt[0], crossAlt[1], 1.0,  crossAlt[0], crossAlt[1], 1.0,
+                                      cross[0], cross[1], 1.0, cross[0], cross[1], 1.0,  crossAlt[0], crossAlt[1], 1.0)
+                                     )
+                                    ,
+                                    ('1g2f',
+                                     (width, width * aspect,  width, width * aspect,  width, width * aspect,
+                                      
+                                      width, width * aspect,  width, width * aspect,  width, width * aspect)
+                                    )
+                                   )
         self.shader.bind()
         lineBatch.draw()
         self.shader.unbind()
@@ -341,13 +349,14 @@ def on_draw():
     glClear(GL_COLOR_BUFFER_BIT)
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    # 
+    # aliasedRenderer = LineRendererAliased()
+    # # aliasedRenderer.drawLine((10, 200), (500, 700), 40.0)
+    # aliasedRenderer.DrawLineInNormalizedCoordinates((0.1, 0.1), (0.9, 0.8), 40.0 / 768.0)
     
-    aliasedRenderer = LineRendererAliased()
-    # aliasedRenderer.drawLine((10, 200), (500, 700), 40.0)
-    aliasedRenderer.DrawLineInNormalizedCoordinates((0.1, 0.1), (0.9, 0.8), 40.0 / 768.0)
-    
-    # dynamicRenderer = LineRendererDynamic()
-    # dynamicRenderer.drawLine((0.1, 0.1), (0.9, 0.9), 0.1)
+    dynamicRenderer = LineRendererDynamic()
+    # dynamicRenderer.drawLineInNormalizedCoordinates((0.1, 0.1), (0.9, 0.9), 40 / 768.0)
+    dynamicRenderer.drawLine((20.0, 200.0), (800.0, 500.0), 40.0)
     
     
 
