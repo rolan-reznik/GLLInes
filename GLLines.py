@@ -6,7 +6,9 @@
 #
 
 import pyglet
+import pyglet.info
 from pyglet.gl import *
+
 import math
 from GLLMath import *
  
@@ -15,16 +17,99 @@ from shader import Shader
 class LineRendererDynamic:
     def __init__(self):
         self.shader = Shader(['''
+                              #version 120
+                              attribute vec4 width;
+                              varying vec4 color;
                               void main() {
                                // transform the vertex position
-                               gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
-                                // pass through the texture coordinate
-                                gl_TexCoord[0] = gl_MultiTexCoord0;
+                               vec2 dir = gl_Normal.xy * width.xy;
+                               vec4 offset = vec4(dir, 0.0, 0.0);
+                               gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex + offset;
+                               color = gl_Color;
                             }
-                              '''])
+                              '''],
+            ['''
+                #version 120
+                varying vec4 color;
+                void main() {
+                    // write out the pixel
+                    gl_FragColor = color;
+                }
+             '''])
         
-    def drawLine(start, end, width):
-        pass
+    def drawLine(self, start, end, width):
+        lineBatch = pyglet.graphics.Batch()
+    
+        direction = pointsSubtract(end, start)
+        cross = pointNormalized(pointCross(direction))
+        crossAlt = pointNormalized(pointCrossAlt(direction))
+        
+        tl = pointsAdd(start, pointMultipliedByScalar(cross, width * 0.5))
+        tr = pointsAdd(start, pointsAdd(direction, pointMultipliedByScalar(cross, width * 0.5)))
+        bl = pointsAdd(start, pointMultipliedByScalar(cross, -width * 0.5))
+        br = pointsAdd(start, pointsAdd(direction, pointMultipliedByScalar(cross, -width * 0.5)))    
+        
+        # vertex_list = pyglet.graphics.vertex_list(6,
+        #                                             ('v2i', (10, 15, 30, 35)),
+        #                                             ('c3B', (0, 0, 255, 0, 255, 0))
+        aspect = 1024.0 / 768.0
+        vertex_list = lineBatch.add(
+            6,
+                                    pyglet.gl.GL_TRIANGLES,
+                                    None,
+                                    ('v2f',
+                                     (start[0], start[1], end[0], end[1], start[0], start[1],
+                                      start[0], start[1], end[0], end[1], end[0], end[1])
+                                    ),
+                                    ('c4f',
+                                     (1.0, 0.0, 0.0, 1.0,  1.0, 0.0, 0.0, 0.5,  1.0, 0.0, 0.0, 0.5,
+                                      
+                                      0.0, 1.0, 0.0, 1.0,  0.0, 0.0, 1.0, 1.0,  0.0, 0.0, 1.0, 1.0)
+                                    ),
+                                    ('n3f',
+                                     (cross[0], cross[1], 1.0,  crossAlt[0], crossAlt[1], 1.0,  crossAlt[0], crossAlt[1], 1.0,
+                                      cross[0], cross[1], 1.0, cross[0], cross[1], 1.0,  crossAlt[0], crossAlt[1], 1.0)
+                                     )
+                                    ,
+                                    ('1g4f',
+                                     (width, width * aspect, width, width,  width, width * aspect, width, width,  width, width * aspect, width, width,
+                                      
+                                      width, width * aspect, width, width,  width, width * aspect, width, width,  width, width * aspect, width, width)
+                                    )
+                                    # ('1g4f',
+                                    #  (1.0, 0.0, 0.0, 1.0,  1.0, 0.0, 0.0, 0.5,  1.0, 0.0, 0.0, 0.5,
+                                    #   
+                                    #   0.0, 1.0, 0.0, 1.0,  0.0, 0.0, 1.0, 1.0,  0.0, 0.0, 1.0, 1.0)
+                                    # ),
+                                    # ('1g1f',
+                                    #   (width, width, width, width, width, width)  
+                                    #  )
+                                    )
+    
+        # vertex_list = lineBatch.add(
+        #     6,
+        #                             pyglet.gl.GL_TRIANGLES,
+        #                             None,
+        #                             ('v2f',
+        #                              (tl[0], tl[1], tr[0], tr[1], bl[0], bl[1],
+        #                               bl[0], bl[1], tr[0], tr[1], br[0], br[1])
+        #                             ),
+        #                             ('c4f',
+        #                              (1.0, 0.0, 0.0, 0.5,  1.0, 0.0, 0.0, 0.5,  1.0, 0.0, 0.0, 0.5,
+        #                               
+        #                               0.0, 1.0, 1.0, 1.0,  0.0, 0.0, 1.0, 1.0,  0.0, 0.0, 1.0, 1.0)
+        #                             ),
+        #                             ('n3f',
+        #                              (direction[0], direction[1], 1.0,  direction[0], direction[1], 1.0,  -direction[0], -direction[1], 1.0,
+        #                               -direction[0], -direction[1], 1.0, direction[0], direction[1], 1.0,  -direction[0], -direction[1], 1.0)
+        #                              )
+        #                             
+        #                             
+        #                             
+        #                             )
+        self.shader.bind()
+        lineBatch.draw()
+        self.shader.unbind()
     
 class LineRendererAliased:
     def drawLine(self, start, end, width):
@@ -245,16 +330,22 @@ def drawLineDynamicWidth(start, end, width):
 # clear the window and draw the scene
 @window.event
 def on_draw():
+    # pyglet.info.dump_gl()
     # clear the screen
     window.clear()
     
-    glClearColor(0, 1, 0, 1);
+    glClearColor(1, 1, 1, 1);
     glClear(GL_COLOR_BUFFER_BIT)
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     
-    aliasedRenderer = LineRendererAliased()
-    aliasedRenderer.drawLine((0.0, 0.0), (1.0, 1.0), 1.0 / 768.0)
+    # aliasedRenderer = LineRendererAliased()
+    # aliasedRenderer.drawLine((0.0, 0.0), (1.0, 1.0), 1.0 / 768.0)
+    
+    dynamicRenderer = LineRendererDynamic()
+    dynamicRenderer.drawLine((0.1, 0.1), (0.9, 0.9), 80.0 / 768.0)
+    
+    
 
     # bind the texture
     #glBindTexture(texture.target, texture.id)

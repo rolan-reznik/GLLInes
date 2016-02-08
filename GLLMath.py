@@ -7,6 +7,7 @@ def pointsAdd(p0, p1):
     return (p1[0] + p0[0], p1[1] + p0[1])
 
 def pointLen(p):
+    '''Length of the point/vector'''
     return math.sqrt(p[0] * p[0] + p[1] * p[1])
 
 def pointNormalized(p):
