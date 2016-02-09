@@ -21,36 +21,34 @@ class LineRendererDynamic:
                               #version 120
                               attribute vec2 width;
                               varying vec4 color;
-                              varying vec2 normal;
-                              varying vec2 widthVarying;
+                              varying vec2 offset;
 
                               void main() {
                                // transform the vertex position
                                vec2 dir = gl_Normal.xy * width.xy;
-                               vec4 offset = vec4(dir, 0.0, 0.0);
-                               gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex + offset;
+                               offset = dir;
+                               gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex + vec4(offset, 0.0, 0.0);
                                color = gl_Color;
-                               normal = gl_Normal.xy;
-                               widthVarying = width;
                             }
                               '''],
             ['''
                 #version 120
                 varying vec4 color;
-                varying vec2 widthVarying;
-                varying vec2 normal;
+                varying vec2 offset;
                 uniform float feather;
+                uniform float width;
+
                 void main() {
-                    // write out the pixel
-                    vec2 offset = normal * widthVarying;
+                    vec4 newColor = color;
+                    //if (length(offset) >= width * 0.9) {
+                    //    newColor = vec4(1.0, 0.0, 0.0, 1.0);
+                    //}
 
-                    float alpha = color.a * (1.0 - smoothstep(-feather,
-                                                               feather,
-                                                               (length(offset) - length(widthVarying)) / length(widthVarying)));
+                    float alpha = 1.0 - smoothstep(-width * feather, width * feather, length(offset) - width);
 
-                    vec4 color = vec4(color.r * alpha, color.g * alpha, color.b * alpha, alpha);
+                    newColor = vec4(color.r * alpha, color.g * alpha, color.b * alpha, alpha);
 
-                    gl_FragColor = color;
+                    gl_FragColor = newColor;
                 }
              '''])
         
@@ -90,7 +88,7 @@ class LineRendererDynamic:
                                     )
                                     )
     
-        self.__drawBatch(lineBatch)
+        self.__drawBatch(lineBatch, widthVector[0])
         
     def drawLine(self, start, end, width):
         lineBatch = pyglet.graphics.Batch()
@@ -110,7 +108,7 @@ class LineRendererDynamic:
         width = width / window.width
         
         aspect = window.width / window.height
-        widthVector = pointMultipliedByScalar(pointNormalized((width, width * aspect)), width)
+        widthVector = (width, width) #pointMultipliedByScalar(pointNormalized((width, width * aspect)), width)
         vertex_list = lineBatch.add(
             6,
                                     pyglet.gl.GL_TRIANGLES,
@@ -135,11 +133,12 @@ class LineRendererDynamic:
                                       widthVector[0], widthVector[1],  widthVector[0], widthVector[1],  widthVector[0], widthVector[1])
                                     )
                                    )
-        self.__drawBatch(lineBatch)
+        self.__drawBatch(lineBatch, widthVector[0])
 
-    def __drawBatch(self, batch):
+    def __drawBatch(self, batch, width):
         self.shader.bind()
         self.shader.uniformf("feather", self.feather)
+        self.shader.uniformf("width", width)
         batch.draw()
         self.shader.unbind()
 
@@ -218,128 +217,6 @@ window = pyglet.window.Window(1024, 768, resizable=True, visible=False, caption=
 # centre the window on whichever screen it is currently on (in case of multiple monitors)
 window.set_location(window.screen.width/2 - window.width/2, window.screen.height/2 - window.height/2)
 
-shader = Shader(['''
-void main() {
-    // transform the vertex position
-    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
-    // pass through the texture coordinate
-    gl_TexCoord[0] = gl_MultiTexCoord0;
-}
-'''], ['''
-uniform sampler2D tex0;
-uniform vec2 pixel;
- 
-void main() {
-    // retrieve the texture coordinate
-    vec2 c = gl_TexCoord[0].xy;
- 
-    // and the current pixel
-    vec3 current = texture2D(tex0, c).rgb;
- 
-    // count the neightbouring pixels with a value greater than zero
-    vec3 neighbours = vec3(0.0);
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1,-1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1, 0)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1, 1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 0,-1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 0, 1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1,-1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1, 0)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1, 1)).rgb, vec3(0.0)));
- 
-    // check if the current pixel is alive
-    vec3 live = vec3(greaterThan(current, vec3(0.0)));
- 
-    // resurect if we are not live, and have 3 live neighrbours
-    current += (1.0-live) * vec3(equal(neighbours, vec3(3.0)));
- 
-    // kill if we do not have either 3 or 2 neighbours
-    current *= vec3(equal(neighbours, vec3(2.0))) + vec3(equal(neighbours, vec3(3.0)));
- 
-    // fade the current pixel as it ages
-    current -= vec3(greaterThan(current, vec3(0.4)))*0.05;
- 
-    // write out the pixel
-    gl_FragColor = vec4(current, 1.0);
-}
-'''])
-
- 
-# create our shader
-shader = Shader(['''
-void main() {
-    // transform the vertex position
-    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
-    // pass through the texture coordinate
-    gl_TexCoord[0] = gl_MultiTexCoord0;
-}
-'''], ['''
-uniform sampler2D tex0;
-uniform vec2 pixel;
- 
-void main() {
-    // retrieve the texture coordinate
-    vec2 c = gl_TexCoord[0].xy;
- 
-    // and the current pixel
-    vec3 current = texture2D(tex0, c).rgb;
- 
-    // count the neightbouring pixels with a value greater than zero
-    vec3 neighbours = vec3(0.0);
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1,-1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1, 0)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2(-1, 1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 0,-1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 0, 1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1,-1)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1, 0)).rgb, vec3(0.0)));
-    neighbours += vec3(greaterThan(texture2D(tex0, c + pixel*vec2( 1, 1)).rgb, vec3(0.0)));
- 
-    // check if the current pixel is alive
-    vec3 live = vec3(greaterThan(current, vec3(0.0)));
- 
-    // resurect if we are not live, and have 3 live neighrbours
-    current += (1.0-live) * vec3(equal(neighbours, vec3(3.0)));
- 
-    // kill if we do not have either 3 or 2 neighbours
-    current *= vec3(equal(neighbours, vec3(2.0))) + vec3(equal(neighbours, vec3(3.0)));
- 
-    // fade the current pixel as it ages
-    current -= vec3(greaterThan(current, vec3(0.4)))*0.05;
- 
-    // write out the pixel
-    gl_FragColor = vec4(current, 1.0);
-}
-'''])
- 
-# bind our shader
-shader.bind()
-# set the correct texture unit
-shader.uniformi('tex0', 0)
-# unbind the shader
-shader.unbind()
- 
-# create the texture
-texture = pyglet.image.Texture.create(window.width, window.height, GL_RGBA)
- 
-# create a fullscreen quad
-batch = pyglet.graphics.Batch()
-batch.add(4, GL_QUADS, None, ('v2i', (0,0, 1,0, 1,1, 0,1)), ('t2f', (0,0, 1.0,0, 1.0,1.0, 0,1.0)))
- 
-# utility function to copy the framebuffer into a texture
-def copyFramebuffer(tex, *size):
-    # if we are given a new size
-    if len(size) == 2:
-        # resize the texture to match
-        tex.width, tex.height = size[0], size[1]
- 
-    # bind the texture
-    glBindTexture(tex.target, tex.id)
-    # copy the framebuffer
-    glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, tex.width, tex.height, 0);
-    # unbind the texture
-    glBindTexture(tex.target, 0)
- 
 # handle the window resize event
 @window.event
 def on_resize(width, height):
@@ -349,16 +226,6 @@ def on_resize(width, height):
     glLoadIdentity()
     glOrtho(0, 1, 0, 1, -1, 1)
     glMatrixMode(GL_MODELVIEW)
- 
-    # copy the framebuffer, which also resizes the texture
-    copyFramebuffer(texture, width, height)
- 
-    # bind our shader
-    shader.bind()
-    # set a uniform to tell the shader the size of a single pixel
-    shader.uniformf('pixel', 1.0/width, 1.0/height)
-    # unbind the shader
-    shader.unbind()
  
     # tell pyglet that we have handled the event, to prevent the default handler from running
     return pyglet.event.EVENT_HANDLED
@@ -385,9 +252,9 @@ def on_draw():
 
     # renderer.drawLine((20.0, 100.0), (800.0, 100.0), 4.0)
 
-    for i in range(0, 10):
-        renderer.feather = 1 * i
-        renderer.drawLine((20.0 + 40.0 * i, 100.0), (800.0 + 40.0 * i, 400.0), 2.0)
+    for i in range(0, 25):
+        renderer.feather = i * 0.05
+        renderer.drawLine((20.0, 500.0 - 20.0 * i), (800.0, 800.0 - 20.0 * i), 3.0)
  
 # schedule an empty update function, at 60 frames/second
 pyglet.clock.schedule_interval(lambda dt: None, 1.0/60.0)
