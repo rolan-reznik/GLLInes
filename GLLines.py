@@ -16,23 +16,40 @@ from shader import Shader
 
 class LineRendererDynamic:
     def __init__(self):
+        self.feather = 0.4
         self.shader = Shader(['''
                               #version 120
                               attribute vec2 width;
                               varying vec4 color;
+                              varying vec2 normal;
+                              varying vec2 widthVarying;
+
                               void main() {
                                // transform the vertex position
                                vec2 dir = gl_Normal.xy * width.xy;
                                vec4 offset = vec4(dir, 0.0, 0.0);
                                gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex + offset;
                                color = gl_Color;
+                               normal = gl_Normal.xy;
+                               widthVarying = width;
                             }
                               '''],
             ['''
                 #version 120
                 varying vec4 color;
+                varying vec2 widthVarying;
+                varying vec2 normal;
+                uniform float feather;
                 void main() {
                     // write out the pixel
+                    vec2 offset = normal * widthVarying;
+
+                    float alpha = color.a * (1.0 - smoothstep(-feather,
+                                                               feather,
+                                                               (length(offset) - length(widthVarying)) / length(widthVarying)));
+
+                    vec4 color = vec4(color.r * alpha, color.g * alpha, color.b * alpha, alpha);
+
                     gl_FragColor = color;
                 }
              '''])
@@ -47,6 +64,7 @@ class LineRendererDynamic:
         crossAlt = (crossAlt[0], crossAlt[1] * (window.width / window.height))
         
         aspect = window.width / window.height
+        widthVector = pointsMultiply(pointNormalized((width, width * aspect)), width)
         vertex_list = lineBatch.add(
             6,
                                     pyglet.gl.GL_TRIANGLES,
@@ -66,15 +84,13 @@ class LineRendererDynamic:
                                      )
                                     ,
                                     ('1g2f',
-                                     (width, width * aspect,  width, width * aspect,  width, width * aspect,
+                                     (widthVector[0], widthVector[1],  widthVector[0], widthVector[1],  widthVector[0], widthVector[1],
                                       
-                                      width, width * aspect,  width, width * aspect,  width, width * aspect)
+                                      widthVector[0], widthVector[1],  widthVector[0], widthVector[1],  widthVector[0], widthVector[1])
                                     )
                                     )
     
-        self.shader.bind()
-        lineBatch.draw()
-        self.shader.unbind()
+        self.__drawBatch(lineBatch)
         
     def drawLine(self, start, end, width):
         lineBatch = pyglet.graphics.Batch()
@@ -85,12 +101,16 @@ class LineRendererDynamic:
         direction = pointsSubtract(end, start)
         cross = pointNormalized(pointCross(direction))
         cross = (cross[0], cross[1] * (window.width / window.height))
+        cross = pointNormalized(cross)
         crossAlt = pointNormalized(pointCrossAlt(direction))
         crossAlt = (crossAlt[0], crossAlt[1] * (window.width / window.height))
-        
+        crossAlt = pointNormalized(crossAlt)
+
+        #since in veretx shader coordinates ar maped into device normalized space we do not need to divide width by half
         width = width / window.width
         
         aspect = window.width / window.height
+        widthVector = pointMultipliedByScalar(pointNormalized((width, width * aspect)), width)
         vertex_list = lineBatch.add(
             6,
                                     pyglet.gl.GL_TRIANGLES,
@@ -100,9 +120,9 @@ class LineRendererDynamic:
                                       start[0], start[1], end[0], end[1], end[0], end[1])
                                     ),
                                     ('c4f',
-                                     (1.0, 0.0, 0.0, 1.0,  1.0, 0.0, 0.0, 0.5,  1.0, 0.0, 0.0, 0.5,
+                                     (1.0, 1.0, 1.0, 1.0,  1.0, 1.0, 1.0, 1.0,  1.0, 1.0, 1.0, 1.0,
                                       
-                                      0.0, 1.0, 0.0, 1.0,  0.0, 0.0, 1.0, 1.0,  0.0, 0.0, 1.0, 1.0)
+                                      1.0, 1.0, 1.0, 1.0,  1.0, 1.0, 1.0, 1.0,  1.0, 1.0, 1.0, 1.0)
                                     ),
                                     ('n3f',
                                      (cross[0], cross[1], 1.0,  crossAlt[0], crossAlt[1], 1.0,  crossAlt[0], crossAlt[1], 1.0,
@@ -110,14 +130,19 @@ class LineRendererDynamic:
                                      )
                                     ,
                                     ('1g2f',
-                                     (width, width * aspect,  width, width * aspect,  width, width * aspect,
-                                      
-                                      width, width * aspect,  width, width * aspect,  width, width * aspect)
+                                     (widthVector[0], widthVector[1],  widthVector[0], widthVector[1],  widthVector[0], widthVector[1],
+
+                                      widthVector[0], widthVector[1],  widthVector[0], widthVector[1],  widthVector[0], widthVector[1])
                                     )
                                    )
+        self.__drawBatch(lineBatch)
+
+    def __drawBatch(self, batch):
         self.shader.bind()
-        lineBatch.draw()
+        self.shader.uniformf("feather", self.feather)
+        batch.draw()
         self.shader.unbind()
+
     
 class LineRendererAliased:
     
@@ -348,33 +373,21 @@ def on_draw():
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT)
     glEnable(GL_BLEND)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    glBlendEquation(GL_FUNC_ADD)
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
     # 
     # aliasedRenderer = LineRendererAliased()
     # # aliasedRenderer.drawLine((10, 200), (500, 700), 40.0)
     # aliasedRenderer.DrawLineInNormalizedCoordinates((0.1, 0.1), (0.9, 0.8), 40.0 / 768.0)
     
-    dynamicRenderer = LineRendererDynamic()
+    renderer = LineRendererDynamic()
     # dynamicRenderer.drawLineInNormalizedCoordinates((0.1, 0.1), (0.9, 0.9), 40 / 768.0)
-    dynamicRenderer.drawLine((20.0, 200.0), (800.0, 500.0), 40.0)
-    
-    
 
-    # bind the texture
-    #glBindTexture(texture.target, texture.id)
-    # and the shader
-    #shader.bind()
- 
-    # draw our fullscreen quad
-    #batch.draw()
- 
-    # unbind the shader
-    #shader.unbind()
-    # an the texture
-    #glBindTexture(texture.target, 0)
- 
-    # copy the result back into the texture
-    #copyFramebuffer(texture)
+    # renderer.drawLine((20.0, 100.0), (800.0, 100.0), 4.0)
+
+    for i in range(0, 10):
+        renderer.feather = 1 * i
+        renderer.drawLine((20.0 + 40.0 * i, 100.0), (800.0 + 40.0 * i, 400.0), 2.0)
  
 # schedule an empty update function, at 60 frames/second
 pyglet.clock.schedule_interval(lambda dt: None, 1.0/60.0)
